@@ -1,7 +1,12 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 import Control.Monad
 
 import qualified Graphics.UI.Threepenny as UI
 import Graphics.UI.Threepenny.Core
+
+import qualified Graphics.Image as I
+import qualified Graphics.Image.Processing as P
 
 import Data.IORef
 import Numeric.Extra (intToDouble)
@@ -13,21 +18,23 @@ main :: IO ()
 main = do
     startGUI defaultConfig setup
 
-canvasSize = 400
+htmlCanvasSize = 400
 
 setup :: Window -> UI ()
 setup window = do
     return window # set title "Canvas - Examples"
 
     canvas <- UI.canvas
-        # set UI.height canvasSize
-        # set UI.width  canvasSize
+        # set UI.height htmlCanvasSize
+        # set UI.width  htmlCanvasSize
         # set style [("border", "solid black 1px"), ("background", "#eee")]
 
     clear     <- UI.button #+ [string "Clear the canvas."]
 
     url <- UI.loadFile "image/jpg" "static/image.jpg"
     img <- UI.img # set UI.src url
+
+    cat <- liftIO $ I.readImageRGB I.VU "static/image.jpg"
 
     let drawImage :: UI ()
         drawImage = do
@@ -102,3 +109,22 @@ setup window = do
     --     canvas # UI.closePath
     --     canvas # UI.stroke
 
+type Point = (Double,Double)
+
+-- |Embed an image in itself
+embed :: (I.Array arr I.RGBA Double)
+      => (Int,Int)          -- ^ The upper left corner 
+      -> (Int,Int)          -- ^ The lower right corner
+      -> I.Image arr I.RGBA Double     -- ^ The source image
+      -> I.Image arr I.RGBA Double     -- ^ The resulting image
+embed ul@(x1,y1) lr@(x2,y2) i = i'
+  where d = (abs $ x2-x1,abs $ y2-y1)
+        smallI = P.resize P.Bilinear P.Edge d i
+        extendedI = P.canvasSize (P.Fill 0) (I.dims i) smallI
+        translatedI = P.translate (P.Fill 0) ul extendedI
+        embeddedI = I.zipWith (addpx) i translatedI
+        -- ignore alpha pixels
+        addpx :: I.Pixel I.RGBA Double -> I.Pixel I.RGBA Double -> I.Pixel I.RGBA Double
+        addpx px (I.PixelRGBA _ _ _ 0) = px
+        addpx _ px = px
+        i' = embeddedI

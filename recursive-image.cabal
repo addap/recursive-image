@@ -5,9 +5,9 @@ version:             0.1.0.0
 homepage:            https://github.com/githubuser/recursive-image#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2019 Author name here
+author:              Adrian Dapprich
+maintainer:          adrian@dapprich.dev
+copyright:           2019 Adrian Dapprich
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
@@ -20,3 +20,4 @@ executable recursive-image
   build-depends:       base >= 4.7 && < 5
                      , threepenny-gui
                      , extra
+                     , hip
