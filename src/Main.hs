@@ -1,22 +1,23 @@
-{-# LANGUAGE FlexibleContexts #-}
-
 import Control.Monad
 
 import qualified Graphics.UI.Threepenny as UI
 import Graphics.UI.Threepenny.Core
 
-import qualified Graphics.Image as I
-import qualified Graphics.Image.Processing as P
-
 import Data.IORef
 import Numeric.Extra (intToDouble)
+
+import qualified Graphics.Image as I
+
+import System.Directory (getCurrentDirectory)
+
+import Core
 
 {-----------------------------------------------------------------------------
     Main
 ------------------------------------------------------------------------------}
 main :: IO ()
 main = do
-    startGUI defaultConfig setup
+    startGUI (defaultConfig { jsStatic = Just "static/" }) setup
 
 htmlCanvasSize = 400
 
@@ -28,14 +29,15 @@ setup window = do
         # set UI.height htmlCanvasSize
         # set UI.width  htmlCanvasSize
         # set style [("border", "solid black 1px"), ("background", "#eee")]
+        # set UI.id_ "canvas"
 
-    clear     <- UI.button #+ [string "Clear the canvas."]
+    clear <- UI.button #+ [string "Clear the canvas."]
+    loadImg <- UI.button # set UI.text "Load Image"
 
-    url <- UI.loadFile "image/jpg" "static/image.jpg"
-    img <- UI.img # set UI.src url
-
-    cat <- liftIO $ I.readImageRGB I.VU "static/image.jpg"
-
+    -- url <- UI.loadFile "image/jpg" "static/image.jpg"
+    img <- UI.img # set UI.src "static/image.jpg"
+           # set UI.id_ "img"
+           
     let drawImage :: UI ()
         drawImage = do
           canvas # UI.drawImage img (0,0)
@@ -45,22 +47,25 @@ setup window = do
     -- -- startPoint :: IORef (Double,Double)
     -- startPoint <- liftIO $ newIORef (0 :: Double,0 :: Double)
 
-    let eStart = UI.mousedown canvas
-    bStart <- stepper (0,0) eStart
-    let bSetStart = (\s -> \p -> (s,p)) <$> bStart
-        eEnd = unionWith (\a b -> b) (const () <$> UI.mouseup canvas) (UI.leave canvas)
+    let eStartSelect = UI.mousedown canvas
+    bStartSelect <- stepper (0,0) eStartSelect
+    let bSetStart = (\s -> \p -> (s,p)) <$> bStartSelect
+        eStopSelect = unionWith (\a b -> b) (const () <$> UI.mouseup canvas) (UI.leave canvas)
+        eProcess = UI.mouseup canvas
         eMove = UI.mousemove canvas
     bSelecting <- stepper False $ unionWith (\a b -> b)
-                     (const True <$> eStart)
-                     (const False <$> eEnd)
-    let eSelect :: Event ((Int,Int),(Int,Int))
-        eSelect = whenE bSelecting $ apply bSetStart eMove
+                     (const True <$> eStartSelect)
+                     (const False <$> eStopSelect)
+    bSelection <- stepper ((0,0),(0,0)) $ apply bSetStart eMove
+    let eChangeSelection :: Event (Int,Int)
+        eChangeSelection = whenE bSelecting eMove
 
-    onEvent eEnd $ const $ do
+    onEvent eStopSelect $ const $ do
       canvas # UI.clearCanvas
       drawImage
       
-    onEvent eSelect $ \((sx,sy),(x,y)) -> do
+    onEvent eChangeSelection $ const $ do
+      ((sx,sy),(x,y)) <- currentValue bSelection
       let [sx', sy', x', y'] = intToDouble <$> [sx,sy,x,y]
       canvas # UI.clearCanvas
       drawImage
@@ -72,59 +77,49 @@ setup window = do
       canvas # UI.closePath
       canvas # UI.stroke
 
+    onEvent eProcess $ const $ do
+      liftIO $ putStrLn "Processing Image"
+      corners <- currentValue bSelection
+      let (ul,lr) = orientate corners
+      liftIO $ putStrLn (show (ul, lr))
+      i <- liftIO $ I.readImageRGBA I.VU "static/image.jpg"
+      let i' = recursiveImage ul lr 3 i
+      liftIO $ I.writeImage "static/image.recursive.jpg" i'
+      img # set' UI.src "static/image.recursive.jpg"
+      return ()
       
-    getBody window #+
-        [ column [element canvas]
-        , element clear
-        ]
-
-    on UI.click clear $ const $
-        canvas # UI.clearCanvas
-    
-    return ()
-    -- on UI.mousedown canvas $ \(x,y) -> do
-    --   liftIO $ modifyIORef selecting $ const True
-    --   liftIO $ modifyIORef startPoint $ const (intToDouble x,intToDouble y)
-
-    -- on UI.mouseup canvas $ \(x,y) -> do
-    --   liftIO $ modifyIORef selecting $ const False
-    --   canvas # UI.clearCanvas
-    -- on UI.leave canvas $ const $ do
-    --   liftIO $ modifyIORef selecting $ const False
-    --   canvas # UI.clearCanvas
-      
-    -- on UI.mousemove canvas $ \(x,y) -> do
-    --   doSelect <- liftIO $ readIORef selecting
-      
-    --   let dx = intToDouble x
-    --       dy = intToDouble y
-    --   when doSelect $ do
+    -- on UI.click clear $ const $
     --     canvas # UI.clearCanvas
-    --     canvas # UI.beginPath
-    --     sp@(sx,sy) <- liftIO $ readIORef startPoint
-    --     canvas # UI.moveTo sp
-    --     canvas # UI.lineTo (sx,dy)
-    --     canvas # UI.lineTo (dx,dy)
-    --     canvas # UI.lineTo (dx,sy)
-    --     canvas # UI.closePath
-    --     canvas # UI.stroke
 
-type Point = (Double,Double)
+    on UI.click loadImg $ const $ do
+      let getWidth :: JSFunction Int
+          getWidth = ffi "$('#img').width();"
+          getHeight :: JSFunction Int
+          getHeight = ffi "$('#img').height();"
+      w <- callFunction getWidth
+      h <- callFunction getHeight
+      element canvas # set UI.width w
+        # set UI.height h
+      return ()
 
--- |Embed an image in itself
-embed :: (I.Array arr I.RGBA Double)
-      => (Int,Int)          -- ^ The upper left corner 
-      -> (Int,Int)          -- ^ The lower right corner
-      -> I.Image arr I.RGBA Double     -- ^ The source image
-      -> I.Image arr I.RGBA Double     -- ^ The resulting image
-embed ul@(x1,y1) lr@(x2,y2) i = i'
-  where d = (abs $ x2-x1,abs $ y2-y1)
-        smallI = P.resize P.Bilinear P.Edge d i
-        extendedI = P.canvasSize (P.Fill 0) (I.dims i) smallI
-        translatedI = P.translate (P.Fill 0) ul extendedI
-        embeddedI = I.zipWith (addpx) i translatedI
-        -- ignore alpha pixels
-        addpx :: I.Pixel I.RGBA Double -> I.Pixel I.RGBA Double -> I.Pixel I.RGBA Double
-        addpx px (I.PixelRGBA _ _ _ 0) = px
-        addpx _ px = px
-        i' = embeddedI
+
+    void $ getBody window #+
+      [ column [element canvas]
+      , element img
+      , element clear
+      , element loadImg
+      ]
+    
+
+type Point a = (a,a)
+-- |Orientate corners so that the smallest values are the upper left corner and the biggest the lower right corner
+orientate :: Point (Point Int) -> Point (Point Int)
+orientate ((x1,y1),(x2,y2)) =
+  ( ( min x1 x2
+    , min y1 y2
+    )
+  , ( max x1 x2
+    , max y1 y2
+    )
+  )
+        

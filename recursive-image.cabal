@@ -20,4 +20,14 @@ executable recursive-image
   build-depends:       base >= 4.7 && < 5
                      , threepenny-gui
                      , extra
+                     , recursive-image
+                     , hip
+                     , directory
+
+library
+  hs-source-dirs:      lib
+  exposed-modules:     Core
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5
+                     , extra
                      , hip
