@@ -27,7 +27,7 @@ import           Core
 ------------------------------------------------------------------------------}
 main :: IO ()
 main = do
-    startGUI (defaultConfig { jsStatic = Just "static/", jsCustomHTML = Just "index.html", jsCallBufferMode = NoBuffering }) setup
+    startGUI (defaultConfig { jsStatic = Just "static/", jsCustomHTML = Just "index.html", jsCallBufferMode = NoBuffering, jsAddr = Nothing, jsPort = Nothing }) setup
 
 htmlCanvasSize = 400
 
